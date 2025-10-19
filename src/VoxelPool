@@ -1,0 +1,144 @@
+--[[
+	VoxelPool
+	
+	Object pool for voxel parts. Reuses parts instead of constantly
+	creating/destroying them for better performance.
+	
+	API:
+	  - VoxelPool.get(size, material, color, collisionGroup) -> Part
+	  - VoxelPool.release(part)
+	  - VoxelPool.clear()
+]]
+
+local VoxelPool = {}
+
+local pool = {}
+local activeCount = 0
+
+local MAX_POOL_SIZE = 1000
+local CONTAINER_NAME = "VoxelDebris"
+
+
+local function getContainer()
+	local container = workspace:FindFirstChild(CONTAINER_NAME)
+
+	if not container then
+		container = Instance.new("Folder")
+		container.Name = CONTAINER_NAME
+		container.Parent = workspace
+	end
+
+	return container
+end
+
+
+local function createKey(size, material, color)
+	return string.format("%.1f_%.1f_%.1f_%s_%d_%d_%d",
+		size.X, size.Y, size.Z,
+		tostring(material),
+		math.floor(color.R * 255),
+		math.floor(color.G * 255),
+		math.floor(color.B * 255)
+	)
+end
+
+
+function VoxelPool.get(size, material, color, collisionGroup)
+	local key = createKey(size, material, color)
+
+	if pool[key] and #pool[key] > 0 then
+		local part = table.remove(pool[key])
+		part.Anchored = false
+		part.CanCollide = true
+		part.Transparency = 0
+		part.Parent = getContainer()
+		activeCount = activeCount + 1
+
+		return part
+	end
+
+	local part = Instance.new("Part")
+	part.Size = size
+	part.Material = material
+	part.Color = color
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Anchored = false
+	part.CanCollide = true
+	part.Parent = getContainer()
+
+	if collisionGroup then
+		part.CollisionGroup = collisionGroup
+	end
+
+	activeCount = activeCount + 1
+
+	return part
+end
+
+
+function VoxelPool.release(part)
+	if not part or not part:IsA("BasePart") then
+		return
+	end
+
+	local key = createKey(part.Size, part.Material, part.Color)
+
+	if not pool[key] then
+		pool[key] = {}
+	end
+
+	if #pool[key] >= MAX_POOL_SIZE then
+		part:Destroy()
+		activeCount = math.max(0, activeCount - 1)
+		return
+	end
+
+	for _, child in ipairs(part:GetChildren()) do
+		if child:IsA("WeldConstraint") or child:IsA("Weld") then
+			child:Destroy()
+		end
+	end
+
+	part.Parent = nil
+	part.CFrame = CFrame.new(0, -10000, 0)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Velocity = Vector3.new(0, 0, 0)
+	part.RotVelocity = Vector3.new(0, 0, 0)
+
+	table.insert(pool[key], part)
+	activeCount = math.max(0, activeCount - 1)
+end
+
+
+function VoxelPool.clear()
+	for key, parts in pairs(pool) do
+		for _, part in ipairs(parts) do
+			if part and part:IsA("Instance") then
+				part:Destroy()
+			end
+		end
+	end
+
+	pool = {}
+	activeCount = 0
+end
+
+
+function VoxelPool.getStats()
+	local pooledCount = 0
+
+	for _, parts in pairs(pool) do
+		pooledCount = pooledCount + #parts
+	end
+
+	return {
+		active = activeCount,
+		pooled = pooledCount,
+		total = activeCount + pooledCount
+	}
+end
+
+
+return VoxelPool
