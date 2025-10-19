@@ -1,0 +1,26 @@
+--[[
+	Basic Destruction Example
+	
+	Shows the simplest way to use Vex - just destroy a part
+	into voxels with default settings.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Vex = require(ReplicatedStorage.Vex)
+
+-- Create a test part
+local part = Instance.new("Part")
+part.Size = Vector3.new(10, 10, 10)
+part.Position = Vector3.new(0, 20, 0)
+part.BrickColor = BrickColor.new("Bright blue")
+part.Material = Enum.Material.Concrete
+part.Anchored = true
+part.Parent = workspace
+
+wait(2)
+
+-- Destroy it into voxels
+local structure = Vex.new(part)
+structure:Destroy()
+
+print("Created", structure:GetVoxelCount(), "voxel parts")
