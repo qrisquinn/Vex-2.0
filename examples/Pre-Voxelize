@@ -1,0 +1,64 @@
+--[[
+	Pre-Voxelization Example
+	
+	Shows how to set up multiple structures ahead of time
+	and destroy them on demand.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Vex = require(ReplicatedStorage.Vex)
+
+-- Create multiple buildings
+local buildingsFolder = Instance.new("Folder")
+buildingsFolder.Name = "Buildings"
+buildingsFolder.Parent = workspace
+
+for i = 1, 5 do
+	local building = Instance.new("Part")
+	building.Name = "Building" .. i
+	building.Size = Vector3.new(10, 15, 10)
+	building.Position = Vector3.new(i * 15, 7.5, 0)
+	building.BrickColor = BrickColor.random()
+	building.Material = Enum.Material.Concrete
+	building.Anchored = true
+	building.Parent = buildingsFolder
+end
+
+-- Pre-voxelize all buildings
+local structures = {}
+
+for _, building in ipairs(buildingsFolder:GetChildren()) do
+	structures[building] = Vex.new(building, {
+		voxelSize = 2,
+		lifetime = 45,
+		weldAdjacent = true
+	})
+	
+	print("Pre-voxelized", building.Name)
+end
+
+-- Destroy them one by one with delay
+task.wait(2)
+
+for _, building in ipairs(buildingsFolder:GetChildren()) do
+	print("Destroying", building.Name)
+	
+	local structure = structures[building]
+	structure:Destroy()
+	
+	-- Apply slight upward force
+	structure:ApplyForce(
+		Vector3.new(0, 300, 0),
+		building.Position
+	)
+	
+	task.wait(1)
+end
+
+print("All buildings destroyed!")
+
+-- Check pool stats
+task.wait(5)
+local stats = Vex.getPoolStats()
+print(string.format("Pool stats - Active: %d, Pooled: %d", 
+	stats.active, stats.pooled))
