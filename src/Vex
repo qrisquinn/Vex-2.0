@@ -1,0 +1,226 @@
+--[[
+	Vex 2.0 - Main Module
+	
+	High-performance voxel destruction system with greedy meshing
+	and object pooling.
+	
+	API:
+	  Vex.new(model, config) -> VoxelStructure
+	  
+	  VoxelStructure:Destroy()
+	  VoxelStructure:ApplyForce(force, position)
+	  VoxelStructure:Cleanup()
+	  VoxelStructure:GetVoxelCount()
+]]
+
+local Vex = {}
+Vex.__index = Vex
+
+local Config = require(script.Config)
+local VoxelGrid = require(script.VoxelGrid)
+local GreedyMesher = require(script.GreedyMesher)
+local VoxelPool = require(script.VoxelPool)
+
+local VoxelStructure = {}
+VoxelStructure.__index = VoxelStructure
+
+
+function VoxelStructure.new(source, config)
+	local self = setmetatable({}, VoxelStructure)
+
+	self.source = source
+	self.config = Config.validate(config or {})
+	self.parts = {}
+	self.isDestroyed = false
+	self.grid = nil
+	self.cleanupConnection = nil
+
+	return self
+end
+
+
+function VoxelStructure:_generateGrid()
+	if self.grid then
+		return self.grid
+	end
+
+	local grid
+
+	if self.source:IsA("BasePart") then
+		grid = VoxelGrid.fromPart(self.source, self.config.voxelSize)
+	else
+		grid = VoxelGrid.fromModel(
+			self.source, 
+			self.config.voxelSize,
+			self.config.maxVoxels
+		)
+	end
+
+	if not grid then
+		warn("Failed to generate voxel grid")
+		return nil
+	end
+
+	self.grid = grid
+
+	return grid
+end
+
+
+function VoxelStructure:_createParts(meshes)
+	local parts = {}
+
+	for _, mesh in ipairs(meshes) do
+		local material = self.config.material or mesh.material
+		local part = VoxelPool.get(
+			mesh.size,
+			material,
+			mesh.color,
+			self.config.collisionGroup
+		)
+
+		local worldCenter = self.grid.origin + mesh.center
+		part.CFrame = CFrame.new(worldCenter)
+		part.Anchored = self.config.anchored
+
+		table.insert(parts, part)
+		table.insert(self.parts, part)
+	end
+
+	return parts
+end
+
+
+function VoxelStructure:_weldAdjacent()
+	if not self.config.weldAdjacent then
+		return
+	end
+
+	local WELD_DISTANCE = self.config.voxelSize * 1.5
+
+	for i, part1 in ipairs(self.parts) do
+		for j = i + 1, #self.parts do
+			local part2 = self.parts[j]
+
+			local distance = (part1.Position - part2.Position).Magnitude
+
+			if distance <= WELD_DISTANCE then
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = part1
+				weld.Part1 = part2
+				weld.Parent = part1
+			end
+		end
+	end
+end
+
+
+function VoxelStructure:_setupLifetime()
+	if not self.config.lifetime then
+		return
+	end
+
+	task.delay(self.config.lifetime, function()
+		self:Cleanup()
+	end)
+end
+
+
+function VoxelStructure:Destroy()
+	if self.isDestroyed then
+		warn("Structure already destroyed")
+		return
+	end
+
+	local grid = self:_generateGrid()
+
+	if not grid then
+		return
+	end
+
+	local meshes
+
+	if self.config.useGreedyMesh then
+		meshes = GreedyMesher.mesh(grid)
+	else
+		meshes = GreedyMesher.createNaiveMeshes(grid)
+	end
+
+	self:_createParts(meshes)
+	self:_weldAdjacent()
+	self:_setupLifetime()
+
+	if self.source and self.source.Parent then
+		self.source:Destroy()
+	end
+
+	self.isDestroyed = true
+end
+
+
+function VoxelStructure:ApplyForce(force, position)
+	if not self.isDestroyed then
+		warn("Call :Destroy() before applying forces")
+		return
+	end
+
+	local FORCE_RADIUS = 20
+
+	for _, part in ipairs(self.parts) do
+		if part and part.Parent then
+			local distance = (part.Position - position).Magnitude
+
+			if distance <= FORCE_RADIUS then
+				local direction = (part.Position - position).Unit
+				local falloff = math.max(0, 1 - (distance / FORCE_RADIUS))
+				local scaledForce = force * falloff
+
+				part.AssemblyLinearVelocity = part.AssemblyLinearVelocity + direction * scaledForce.Magnitude
+			end
+		end
+	end
+end
+
+
+function VoxelStructure:Cleanup()
+	for _, part in ipairs(self.parts) do
+		if part and part.Parent then
+			VoxelPool.release(part)
+		end
+	end
+
+	self.parts = {}
+
+	if self.cleanupConnection then
+		self.cleanupConnection:Disconnect()
+		self.cleanupConnection = nil
+	end
+end
+
+
+function VoxelStructure:GetVoxelCount()
+	return #self.parts
+end
+
+
+function Vex.new(source, config)
+	if not source then
+		warn("Vex.new requires a Model or BasePart")
+		return nil
+	end
+
+	return VoxelStructure.new(source, config)
+end
+
+
+function Vex.clearPool()
+	VoxelPool.clear()
+end
+
+
+function Vex.getPoolStats()
+	return VoxelPool.getStats()
+end
+
+
+return Vex
