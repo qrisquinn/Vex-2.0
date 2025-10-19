@@ -7,6 +7,7 @@ High-performance voxel destruction system for Roblox with greedy meshing and obj
 Vex converts Roblox parts into destructible voxel structures. Break buildings into pieces, apply explosion forces, and watch physics do its thing.
 
 Originally created in 2022, Vex 2.0 is a complete rewrite focused on performance and usability.
+[DevForum Post](https://devforum.roblox.com/t/vex-20-remastered-for-your-voxel-destruction-needs/1619456)
 
 ## Features
 
