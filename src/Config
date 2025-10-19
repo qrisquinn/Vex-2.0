@@ -1,0 +1,85 @@
+--[[
+	Config
+	
+	Manages default configuration and validates user-provided settings.
+	Centralizes all tunable parameters for the Vex system.
+]]
+
+local Config = {}
+
+Config.DEFAULTS = {
+	voxelSize = 1,
+	useGreedyMesh = true,
+	maxVoxels = 10000,
+	lifetime = nil,
+	material = nil,
+	collisionGroup = "Debris",
+	anchored = false,
+	weldAdjacent = true,
+}
+
+Config.LIMITS = {
+	MIN_VOXEL_SIZE = 0.1,
+	MAX_VOXEL_SIZE = 10,
+	MIN_LIFETIME = 1,
+	MAX_VOXELS = 50000,
+}
+
+
+function Config.validate(userConfig)
+	local validated = {}
+
+	for key, defaultValue in pairs(Config.DEFAULTS) do
+		local value = userConfig[key]
+
+		if value == nil then
+			validated[key] = defaultValue
+		else
+			validated[key] = value
+		end
+	end
+
+	if validated.voxelSize < Config.LIMITS.MIN_VOXEL_SIZE then
+		warn(string.format("voxelSize %.2f below minimum, clamping to %.2f", 
+			validated.voxelSize, Config.LIMITS.MIN_VOXEL_SIZE))
+		validated.voxelSize = Config.LIMITS.MIN_VOXEL_SIZE
+	end
+
+	if validated.voxelSize > Config.LIMITS.MAX_VOXEL_SIZE then
+		warn(string.format("voxelSize %.2f above maximum, clamping to %.2f", 
+			validated.voxelSize, Config.LIMITS.MAX_VOXEL_SIZE))
+		validated.voxelSize = Config.LIMITS.MAX_VOXEL_SIZE
+	end
+
+	if validated.maxVoxels > Config.LIMITS.MAX_VOXELS then
+		warn(string.format("maxVoxels %d above limit, clamping to %d", 
+			validated.maxVoxels, Config.LIMITS.MAX_VOXELS))
+		validated.maxVoxels = Config.LIMITS.MAX_VOXELS
+	end
+
+	if validated.lifetime and validated.lifetime < Config.LIMITS.MIN_LIFETIME then
+		warn(string.format("lifetime %.1f below minimum, clamping to %.1f", 
+			validated.lifetime, Config.LIMITS.MIN_LIFETIME))
+		validated.lifetime = Config.LIMITS.MIN_LIFETIME
+	end
+
+	return validated
+end
+
+
+function Config.merge(baseConfig, overrides)
+	local merged = {}
+
+	for key, value in pairs(baseConfig) do
+		merged[key] = value
+	end
+
+	for key, value in pairs(overrides) do
+		merged[key] = value
+	end
+
+	return merged
+end
+
+
+return Config
