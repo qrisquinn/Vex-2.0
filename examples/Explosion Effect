@@ -1,0 +1,61 @@
+--[[
+	Explosion Effect Example
+	
+	Demonstrates applying forces to voxels to create
+	an explosion effect.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Vex = require(ReplicatedStorage.Vex)
+
+-- Create a building
+local building = Instance.new("Part")
+building.Size = Vector3.new(20, 30, 20)
+building.Position = Vector3.new(0, 15, 0)
+building.BrickColor = BrickColor.new("Brick yellow")
+building.Material = Enum.Material.Brick
+building.Anchored = true
+building.Parent = workspace
+
+-- Create a bomb
+local bomb = Instance.new("Part")
+bomb.Size = Vector3.new(2, 2, 2)
+bomb.Position = Vector3.new(0, 1, 0)
+bomb.BrickColor = BrickColor.new("Really red")
+bomb.Shape = Enum.PartType.Ball
+bomb.Material = Enum.Material.Neon
+bomb.Parent = workspace
+
+-- Set up the structure
+local structure = Vex.new(building, {
+	voxelSize = 2,
+	lifetime = 30,
+	material = Enum.Material.Brick
+})
+
+-- Trigger explosion on touch
+bomb.Touched:Connect(function(hit)
+	if hit == building then
+		print("BOOM!")
+		
+		-- Destroy into voxels
+		structure:Destroy()
+		
+		-- Apply explosion force
+		structure:ApplyForce(
+			Vector3.new(0, 1000, 0),
+			bomb.Position
+		)
+		
+		-- Visual explosion effect
+		local explosion = Instance.new("Explosion")
+		explosion.Position = bomb.Position
+		explosion.BlastRadius = 20
+		explosion.BlastPressure = 0  -- Don't affect voxels with built-in blast
+		explosion.Parent = workspace
+		
+		bomb:Destroy()
+	end
+end)
+
+print("Touch the bomb to the building to trigger explosion!")
