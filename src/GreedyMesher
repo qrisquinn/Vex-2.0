@@ -1,0 +1,189 @@
+--[[
+	GreedyMesher
+	
+	Implements greedy meshing algorithm to combine adjacent voxels
+	into larger parts, dramatically reducing part count.
+	
+	Algorithm: Scans voxel grid layer by layer, merging rectangular
+	regions of same-material voxels into single parts.
+	
+	API:
+	  - GreedyMesher.mesh(grid) -> meshes[]
+]]
+
+local GreedyMesher = {}
+
+
+local function canMerge(voxel1, voxel2)
+	if not voxel1 or not voxel2 then
+		return false
+	end
+
+	if voxel1.material ~= voxel2.material then
+		return false
+	end
+
+	if math.abs(voxel1.color.R - voxel2.color.R) > 0.01 then
+		return false
+	end
+
+	if math.abs(voxel1.color.G - voxel2.color.G) > 0.01 then
+		return false
+	end
+
+	if math.abs(voxel1.color.B - voxel2.color.B) > 0.01 then
+		return false
+	end
+
+	return true
+end
+
+
+local function createMesh(minX, minY, minZ, maxX, maxY, maxZ, material, color, voxelSize)
+	return {
+		min = Vector3.new(minX, minY, minZ),
+		max = Vector3.new(maxX, maxY, maxZ),
+		size = Vector3.new(
+			(maxX - minX + 1) * voxelSize,
+			(maxY - minY + 1) * voxelSize,
+			(maxZ - minZ + 1) * voxelSize
+		),
+		center = Vector3.new(
+			(minX + maxX) / 2 * voxelSize,
+			(minY + maxY) / 2 * voxelSize,
+			(minZ + maxZ) / 2 * voxelSize
+		),
+		material = material,
+		color = color
+	}
+end
+
+
+local function getVoxelKey(x, y, z)
+	return string.format("%d,%d,%d", x, y, z)
+end
+
+
+function GreedyMesher.mesh(grid)
+	local meshes = {}
+	local processed = {}
+
+	local minX = grid.bounds.min.X
+	local minY = grid.bounds.min.Y
+	local minZ = grid.bounds.min.Z
+	local maxX = grid.bounds.max.X
+	local maxY = grid.bounds.max.Y
+	local maxZ = grid.bounds.max.Z
+
+	for y = minY, maxY do
+		for z = minZ, maxZ do
+			for x = minX, maxX do
+				local key = getVoxelKey(x, y, z)
+
+				if grid.voxels[key] and not processed[key] then
+					local voxel = grid.voxels[key]
+					local startX = x
+					local endX = x
+
+					while endX + 1 <= maxX do
+						local nextKey = getVoxelKey(endX + 1, y, z)
+						local nextVoxel = grid.voxels[nextKey]
+
+						if not nextVoxel or processed[nextKey] or not canMerge(voxel, nextVoxel) then
+							break
+						end
+
+						endX = endX + 1
+					end
+
+					local endZ = z
+					local canExpandZ = true
+
+					while canExpandZ and endZ + 1 <= maxZ do
+						for testX = startX, endX do
+							local testKey = getVoxelKey(testX, y, endZ + 1)
+							local testVoxel = grid.voxels[testKey]
+
+							if not testVoxel or processed[testKey] or not canMerge(voxel, testVoxel) then
+								canExpandZ = false
+								break
+							end
+						end
+
+						if canExpandZ then
+							endZ = endZ + 1
+						end
+					end
+
+					local endY = y
+					local canExpandY = true
+
+					while canExpandY and endY + 1 <= maxY do
+						for testZ = z, endZ do
+							for testX = startX, endX do
+								local testKey = getVoxelKey(testX, endY + 1, testZ)
+								local testVoxel = grid.voxels[testKey]
+
+								if not testVoxel or processed[testKey] or not canMerge(voxel, testVoxel) then
+									canExpandY = false
+									break
+								end
+							end
+
+							if not canExpandY then
+								break
+							end
+						end
+
+						if canExpandY then
+							endY = endY + 1
+						end
+					end
+
+					for markY = y, endY do
+						for markZ = z, endZ do
+							for markX = startX, endX do
+								local markKey = getVoxelKey(markX, markY, markZ)
+								processed[markKey] = true
+							end
+						end
+					end
+
+					local mesh = createMesh(
+						startX, y, z,
+						endX, endY, endZ,
+						voxel.material,
+						voxel.color,
+						grid.voxelSize
+					)
+
+					table.insert(meshes, mesh)
+				end
+			end
+		end
+	end
+
+	return meshes
+end
+
+
+function GreedyMesher.createNaiveMeshes(grid)
+	local meshes = {}
+
+	for key, voxel in pairs(grid.voxels) do
+		local mesh = createMesh(
+			voxel.x, voxel.y, voxel.z,
+			voxel.x, voxel.y, voxel.z,
+			voxel.material,
+			voxel.color,
+			grid.voxelSize
+		)
+
+		table.insert(meshes, mesh)
+	end
+
+	return meshes
+end
+
+
+return GreedyMesher
