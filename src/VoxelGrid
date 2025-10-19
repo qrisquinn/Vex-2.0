@@ -1,0 +1,246 @@
+--[[
+	VoxelGrid
+	
+	Handles conversion of parts into 3D voxel grids.
+	Manages coordinate transformations and grid data structures.
+	
+	API:
+	  - VoxelGrid.fromPart(part, voxelSize) -> grid
+	  - VoxelGrid.fromModel(model, voxelSize) -> grid
+]]
+
+local VoxelGrid = {}
+
+local EPSILON = 0.01
+
+
+local function createGrid()
+	return {
+		voxels = {},
+		bounds = {
+			min = Vector3.new(math.huge, math.huge, math.huge),
+			max = Vector3.new(-math.huge, -math.huge, -math.huge)
+		},
+		material = Enum.Material.Plastic,
+		color = Color3.new(0.5, 0.5, 0.5),
+		voxelSize = 1
+	}
+end
+
+
+local function worldToGrid(worldPos, origin, voxelSize)
+	local relative = worldPos - origin
+
+	return Vector3.new(
+		math.floor(relative.X / voxelSize + 0.5),
+		math.floor(relative.Y / voxelSize + 0.5),
+		math.floor(relative.Z / voxelSize + 0.5)
+	)
+end
+
+
+local function gridToWorld(gridPos, origin, voxelSize)
+	return origin + Vector3.new(
+		gridPos.X * voxelSize,
+		gridPos.Y * voxelSize,
+		gridPos.Z * voxelSize
+	)
+end
+
+
+local function getGridKey(x, y, z)
+	return string.format("%d,%d,%d", x, y, z)
+end
+
+
+local function addVoxel(grid, x, y, z, material, color)
+	local key = getGridKey(x, y, z)
+
+	grid.voxels[key] = {
+		x = x,
+		y = y,
+		z = z,
+		material = material or grid.material,
+		color = color or grid.color
+	}
+
+	grid.bounds.min = Vector3.new(
+		math.min(grid.bounds.min.X, x),
+		math.min(grid.bounds.min.Y, y),
+		math.min(grid.bounds.min.Z, z)
+	)
+
+	grid.bounds.max = Vector3.new(
+		math.max(grid.bounds.max.X, x),
+		math.max(grid.bounds.max.Y, y),
+		math.max(grid.bounds.max.Z, z)
+	)
+end
+
+
+function VoxelGrid.fromPart(part, voxelSize)
+	if not part:IsA("BasePart") then
+		warn("VoxelGrid.fromPart requires a BasePart")
+		return nil
+	end
+
+	local grid = createGrid()
+	grid.voxelSize = voxelSize
+	grid.material = part.Material
+	grid.color = part.Color
+
+	local size = part.Size
+	local cframe = part.CFrame
+
+	local origin = cframe.Position - Vector3.new(
+		size.X / 2,
+		size.Y / 2,
+		size.Z / 2
+	)
+
+	local numVoxelsX = math.max(1, math.ceil(size.X / voxelSize))
+	local numVoxelsY = math.max(1, math.ceil(size.Y / voxelSize))
+	local numVoxelsZ = math.max(1, math.ceil(size.Z / voxelSize))
+
+	for x = 0, numVoxelsX - 1 do
+		for y = 0, numVoxelsY - 1 do
+			for z = 0, numVoxelsZ - 1 do
+				local worldPos = origin + Vector3.new(
+					(x + 0.5) * voxelSize,
+					(y + 0.5) * voxelSize,
+					(z + 0.5) * voxelSize
+				)
+
+				local region = Region3.new(
+					worldPos - Vector3.new(voxelSize/2, voxelSize/2, voxelSize/2),
+					worldPos + Vector3.new(voxelSize/2, voxelSize/2, voxelSize/2)
+				):ExpandToGrid(4)
+
+				local parts = workspace:FindPartsInRegion3(region, part, 1)
+
+				if #parts > 0 then
+					addVoxel(grid, x, y, z, part.Material, part.Color)
+				end
+			end
+		end
+	end
+
+	grid.origin = origin
+	grid.rotation = cframe - cframe.Position
+
+	return grid
+end
+
+
+function VoxelGrid.fromModel(model, voxelSize, maxVoxels)
+	if not model:IsA("Model") and not model:IsA("BasePart") then
+		warn("VoxelGrid.fromModel requires a Model or BasePart")
+		return nil
+	end
+
+	local parts = {}
+
+	if model:IsA("BasePart") then
+		table.insert(parts, model)
+	else
+		for _, descendant in ipairs(model:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				table.insert(parts, descendant)
+			end
+		end
+	end
+
+	if #parts == 0 then
+		warn("No parts found in model")
+		return nil
+	end
+
+	local grid = createGrid()
+	grid.voxelSize = voxelSize
+
+	local globalMin = Vector3.new(math.huge, math.huge, math.huge)
+	local globalMax = Vector3.new(-math.huge, -math.huge, -math.huge)
+
+	for _, part in ipairs(parts) do
+		local size = part.Size
+		local pos = part.Position
+
+		local partMin = pos - size / 2
+		local partMax = pos + size / 2
+
+		globalMin = Vector3.new(
+			math.min(globalMin.X, partMin.X),
+			math.min(globalMin.Y, partMin.Y),
+			math.min(globalMin.Z, partMin.Z)
+		)
+
+		globalMax = Vector3.new(
+			math.max(globalMax.X, partMax.X),
+			math.max(globalMax.Y, partMax.Y),
+			math.max(globalMax.Z, partMax.Z)
+		)
+	end
+
+	grid.origin = globalMin
+
+	local voxelCount = 0
+
+	for _, part in ipairs(parts) do
+		local size = part.Size
+		local cframe = part.CFrame
+
+		local numVoxelsX = math.max(1, math.ceil(size.X / voxelSize))
+		local numVoxelsY = math.max(1, math.ceil(size.Y / voxelSize))
+		local numVoxelsZ = math.max(1, math.ceil(size.Z / voxelSize))
+
+		for x = 0, numVoxelsX - 1 do
+			for y = 0, numVoxelsY - 1 do
+				for z = 0, numVoxelsZ - 1 do
+					if maxVoxels and voxelCount >= maxVoxels then
+						warn(string.format("Reached maxVoxels limit (%d), stopping voxelization", maxVoxels))
+						return grid
+					end
+
+					local localPos = Vector3.new(
+						(x - numVoxelsX/2 + 0.5) * voxelSize,
+						(y - numVoxelsY/2 + 0.5) * voxelSize,
+						(z - numVoxelsZ/2 + 0.5) * voxelSize
+					)
+
+					local worldPos = cframe:PointToWorldSpace(localPos)
+					local gridPos = worldToGrid(worldPos, grid.origin, voxelSize)
+
+					addVoxel(grid, gridPos.X, gridPos.Y, gridPos.Z, part.Material, part.Color)
+					voxelCount = voxelCount + 1
+				end
+			end
+		end
+	end
+
+	return grid
+end
+
+
+function VoxelGrid.getVoxelCount(grid)
+	local count = 0
+
+	for _ in pairs(grid.voxels) do
+		count = count + 1
+	end
+
+	return count
+end
+
+
+function VoxelGrid.getVoxel(grid, x, y, z)
+	local key = getGridKey(x, y, z)
+	return grid.voxels[key]
+end
+
+
+function VoxelGrid.iterator(grid)
+	return pairs(grid.voxels)
+end
+
+
+return VoxelGrid
